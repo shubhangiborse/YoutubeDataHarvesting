@@ -2,6 +2,7 @@
 #!conda install sqlalchemy -y
 #!pip install --upgrade google-api-python-client 
 #!pip install pymongo
+#!pip install isodate
 
 
 import streamlit as st
@@ -17,6 +18,7 @@ dt = datetime.strptime('1997-04-01','%Y-%m-%d')#CONVERTING STRING TO DATETIME OB
 import pymongo
 from sqlalchemy import create_engine, text
 from dateutil import parser
+import isodate
 
 
 connection_string = "mysql+mysqlconnector://root:borse123@127.0.0.1:3306/youtube"
@@ -100,7 +102,7 @@ def get_video_info(video_id):
           # "Dislike_Count": int(video_data["statistics"]["dislikeCount"]),
           "Favorite_Count": int(video_data["statistics"]["favoriteCount"]),
           "Comment_Count": int(video_data["statistics"]["commentCount"]),
-          "Duration": video_data["contentDetails"]["duration"],
+          "Duration": isodate.parse_duration(video_data["contentDetails"]["duration"]).total_seconds(),
           "Thumbnail": video_data["snippet"]["thumbnails"]["default"]["url"],
           "Caption_Status": video_data["contentDetails"]["caption"],
           "Comments": Comments
@@ -142,18 +144,18 @@ st.title("YouTube Data Harvesting and Warehousing using SQL, MongoDB and Streaml
 st.header("... By Dr. Shubhangi Borse")
 st.write("sample channel ids")
 
-st.info('UCwXAnR4X_KAY_NPs9pCPz1Q, UCNU_lfiiWBdtULKOw6X0Dig, UCDrf0V4fcBr5FlCtKwvpfwA, UCCEN_eAgHIJLV792tr1aA0A, UCh9nVJoWXmFb7sLApWGcLPQ', icon="ℹ️")
-st.info("UCeVMnSShP_Iviwkknt83cww, UC0T6MVd3wQDB5ICAe45OxaQ, UCK70H_67YRgeA513ZHA2TIg, UCduIoIMfD8tT3KoU0-zBRgQ, UC3SdeibuuvF-ganJesKyDVQ", icon="ℹ️")
+channels = ["UCwXAnR4X_KAY_NPs9pCPz1Q", "UCNU_lfiiWBdtULKOw6X0Dig", "UCDrf0V4fcBr5FlCtKwvpfwA", "UCCEN_eAgHIJLV792tr1aA0A", "UCh9nVJoWXmFb7sLApWGcLPQ", "UCeVMnSShP_Iviwkknt83cww", "UC0T6MVd3wQDB5ICAe45OxaQ", "UCK70H_67YRgeA513ZHA2TIg", "UC3SdeibuuvF-ganJesKyDVQ"]
 
 if st.button("Delete All records in MongoDB"):
     mycol.delete_many({})
     
-channel_id = st.text_input("Channel ID")
-if st.button("Fetch from Youtube to MongoDB"):
+if st.button("Load 10 Channels info from Youtube to MongoDB"):
   with st.spinner('Wait for it...'):
-    details = extract_data(channel_id)
-    status = mycol.insert_one(details)
-    st.write("Channel Name "+ details["Channel_Name"]["Channel_Name"]+" saved into MongoDB")
+    for channel_id in channels:
+        
+        details = extract_data(channel_id)
+        status = mycol.insert_one(details)
+        st.write("Channel Name "+ details["Channel_Name"]["Channel_Name"]+" saved into MongoDB")
 
 st.write("MongoDB Records")
 records = {}
@@ -202,7 +204,7 @@ if st.button("Migrate from MongoDb to MySQL"):
         with engine.connect() as connection:
             desc = json_dict['Channel_Name']['Channel_Description'][:200].replace("'","")
         
-            connection.execute(text(f"INSERT INTO `youtube`.`Channel` (`channel_id`, `channel_type`, `channel_view`, `channel_description`) VALUES ('{json_dict['Channel_Name']['Channel_Id']}', '{json_dict['Channel_Name']['Channel_Name']}', {json_dict['Channel_Name']['Subscription_Count']}, '{desc}');"))
+            connection.execute(text(f"INSERT INTO `youtube`.`Channel` (`channel_id`, `channel_name`, `channel_view`, `channel_description`) VALUES ('{json_dict['Channel_Name']['Channel_Id']}', '{json_dict['Channel_Name']['Channel_Name']}', {json_dict['Channel_Name']['Subscription_Count']}, '{desc}');"))
             connection.commit()
             connection.execute(text(f"INSERT INTO `youtube`.`Playlist` (`playlist_id`, `channel_id`, `playlist_name`) VALUES('{json_dict['Channel_Name']['Playlist_Id']}', '{json_dict['Channel_Name']['Channel_Id']}', '{json_dict['Channel_Name']['Channel_Name']}');"))
             connection.commit()
@@ -277,3 +279,70 @@ if st.button("Fetch Comments"):
     df = conn.query(f"SELECT Video.video_id,Comment.comment_text,Comment.comment_author FROM youtube.Comment JOIN youtube.Video on Comment.video_id = Comment.video_id and Comment.video_id='{video_id}'")
     st.dataframe(df)
 
+
+st.write("1. What are the names of all the videos and their corresponding channels?")
+if st.button("Answer 1"):
+    st.write("SELECT Video.video_name, Channel.channel_name FROM Video INNER JOIN Playlist ON Video.playlist_id = Playlist.playlist_id INNER JOIN Channel ON Playlist.channel_id = Channel.channel_id ;")
+    video_df = conn.query("SELECT Video.video_name, Channel.channel_name FROM Video INNER JOIN Playlist ON Video.playlist_id = Playlist.playlist_id INNER JOIN Channel ON Playlist.channel_id = Channel.channel_id ;")
+    st.dataframe(video_df)
+    
+
+st.write("2. Which channels have the most number of videos, and how many videos do they have?")
+if st.button("Answer 2"):
+    st.write("SELECT Channel.channel_name, COUNT(Video.video_id) AS video_count FROM Video INNER JOIN Playlist ON Video.playlist_id = Playlist.playlist_id INNER JOIN Channel ON Playlist.channel_id = Channel.channel_id GROUP BY Channel.channel_name ORDER BY video_count DESC LIMIT 1;")
+    video_df = conn.query("SELECT Channel.channel_name, COUNT(Video.video_id) AS video_count FROM Video INNER JOIN Playlist ON Video.playlist_id = Playlist.playlist_id INNER JOIN Channel ON Playlist.channel_id = Channel.channel_id GROUP BY Channel.channel_name ORDER BY video_count DESC LIMIT 1;")
+    st.dataframe(video_df)
+    
+st.write("3.What are the top 10 most viewed videos and their respective channels?")
+if st.button("Answer 3"):
+    st.write("SELECT Video.video_name, Channel.channel_name, Video.view_coun as video_count FROM Video INNER JOIN Playlist ON Video.playlist_id = Playlist.playlist_id INNER JOIN Channel ON Playlist.channel_id = Channel.channel_id  ORDER BY video_count DESC LIMIT 10;")
+    video_df = conn.query("SELECT Video.video_name, Channel.channel_name, Video.view_coun as video_count FROM Video INNER JOIN Playlist ON Video.playlist_id = Playlist.playlist_id INNER JOIN Channel ON Playlist.channel_id = Channel.channel_id  ORDER BY video_count DESC LIMIT 10;")
+    st.dataframe(video_df)
+    
+st.write("4. How many comments were made on each video, and what are their corresponding video names?")
+if st.button("Answer 4"):
+    st.write("SELECT Video.video_name, COUNT(Comment.comment_id) AS comment_count FROM Video INNER JOIN Comment ON Video.video_id = Comment.video_id  GROUP BY Video.video_name ORDER BY comment_count DESC ;")
+    video_df = conn.query("SELECT Video.video_name, COUNT(Comment.comment_id) AS comment_count FROM Video INNER JOIN Comment ON Video.video_id = Comment.video_id  GROUP BY Video.video_name ORDER BY comment_count DESC ;")
+    st.dataframe(video_df)
+    
+
+    
+st.write("5. Which videos have the highest number of likes, and what are their corresponding channel names?")
+if st.button("Answer 5"):
+    st.write("SELECT V.video_name, C.channel_name, V.like_count FROM Video V INNER JOIN Playlist P ON V.playlist_id = P.playlist_id INNER JOIN Channel C ON P.channel_id = C.channel_id ORDER BY V.like_count DESC LIMIT 10;")
+    video_df = conn.query("SELECT V.video_name, C.channel_name, V.like_count FROM Video V INNER JOIN Playlist P ON V.playlist_id = P.playlist_id INNER JOIN Channel C ON P.channel_id = C.channel_id ORDER BY V.like_count DESC LIMIT 10;")
+    st.dataframe(video_df)
+    
+    
+st.write("6. What is the total number of likes and dislikes for each video, and what are  their corresponding video names?")
+if st.button("Answer 6"):
+    st.write("SELECT V.video_name,  V.like_count as like_count FROM Video V ORDER BY like_count DESC;")
+    video_df = conn.query("SELECT V.video_name,  V.like_count as like_count FROM Video V ORDER BY like_count DESC;")
+    st.dataframe(video_df)
+    
+
+
+st.write("7. What is the total number of views for each channel, and what are their corresponding channel names?")
+if st.button("Answer 7"):
+    st.write("SELECT c.channel_name, c.channel_view AS total_views FROM Channel c ORDER BY total_views DESC;")
+    video_df = conn.query("SELECT c.channel_name, c.channel_view AS total_views FROM Channel c ORDER BY total_views DESC;")
+    st.dataframe(video_df)
+    
+
+st.write("8. What are the names of all the channels that have published videos in the year 2022?")
+if st.button("Answer 8"):
+    st.write("SELECT V.video_name,  V.like_count as like_count FROM Video V ORDER BY like_count DESC;")
+    video_df = conn.query("SELECT V.video_name,  V.like_count as like_count FROM Video V ORDER BY like_count DESC;")
+    st.dataframe(video_df)
+    
+st.write("9. What is the average duration of all videos in each channel, and what are their corresponding channel names?")
+if st.button("Answer 9"):
+    st.write("SELECT c.channel_name, AVG(CASE WHEN v.duration IS NULL THEN 0 ELSE v.duration END) AS avg_duration FROM Video v INNER JOIN Playlist P ON V.playlist_id = P.playlist_id  INNER JOIN Channel c ON P.channel_id = c.channel_id GROUP BY c.channel_name ORDER BY avg_duration DESC;")
+    video_df = conn.query("SELECT c.channel_name, AVG(CASE WHEN v.duration IS NULL THEN 0 ELSE v.duration END) AS avg_duration FROM Video v INNER JOIN Playlist P ON V.playlist_id = P.playlist_id  INNER JOIN Channel c ON P.channel_id = c.channel_id GROUP BY c.channel_name ORDER BY avg_duration DESC;")
+    st.dataframe(video_df)
+    
+st.write("10. Which videos have the highest number of comments, and what are their corresponding channel names?")
+if st.button("Answer 10"):
+    st.write("SELECT V.video_name, C.channel_name, COUNT(Ch.comment_id) AS comment_count FROM Video V INNER JOIN Playlist P ON V.playlist_id = P.playlist_id   INNER JOIN Channel C ON P.channel_id = C.channel_id  INNER JOIN Comment Ch ON V.video_id = Ch.video_id  GROUP BY V.video_name, C.channel_name ORDER BY comment_count DESC;")
+    video_df = conn.query("SELECT V.video_name, C.channel_name, COUNT(Ch.comment_id) AS comment_count FROM Video V INNER JOIN Playlist P ON V.playlist_id = P.playlist_id   INNER JOIN Channel C ON P.channel_id = C.channel_id  INNER JOIN Comment Ch ON V.video_id = Ch.video_id  GROUP BY V.video_name, C.channel_name ORDER BY comment_count DESC;")
+    st.dataframe(video_df)
