@@ -1,4 +1,9 @@
 
+Install Dependency
+```
+pip install -r  requirements.txt
+```
+
 Run the project
 ```
 streamlit run app.py
